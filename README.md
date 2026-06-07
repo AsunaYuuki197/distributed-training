@@ -32,3 +32,55 @@ Soon
 ## Megatron
 
 Soon
+
+## Code
+
+I used [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) with the Ubuntu-24.04 distribution to run all the code, so I recommend using a Linux environment or WSL for the best compatibility and the fewest errors.
+
+### Installation
+
+1. Install Miniconda to provide a Python installation without requiring a system-wide Python installation (If you already have Python installed, you can jump to step 2 in Setup).
+
+   * Linux: https://www.anaconda.com/docs/getting-started/miniconda/install/linux-install
+   * Windows: https://www.anaconda.com/docs/getting-started/miniconda/install/windows-install
+
+2. Create a Conda environment with Python 3.12:
+
+```bash
+conda create -n dist_train python=3.12
+```
+
+## Setup
+
+1. Activate the Conda environment:
+
+```bash
+conda activate dist_train
+```
+
+2. Install `uv`:
+
+```bash
+pip install uv
+```
+
+3. Create and activate the project virtual environment:
+
+```bash
+uv venv
+
+# Linux/macOS
+source .venv/bin/activate
+
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# Windows (Command Prompt)
+.venv\Scripts\activate.bat
+```
+
+4. Install project dependencies:
+
+```bash
+uv pip install -e .
+```
