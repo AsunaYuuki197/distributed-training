@@ -544,3 +544,5 @@ At the end of Step 2, each rank contains its assigned chunk.
 ## Note
 
 - The implementation section is intentionally abstract and focuses on the conceptual design rather than the details of the actual code implementation.
+
+- The [code](/collectives/code/) is where I explain each parameter in the PyTorch Distributed API and provide some code examples.

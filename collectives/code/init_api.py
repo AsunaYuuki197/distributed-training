@@ -2,7 +2,16 @@ import os
 from datetime import timedelta
 import torch.distributed as dist
 
-# https://docs.pytorch.org/docs/2.12/distributed.html#initialization
+# Recommended Read:
+#   New process group:
+#       https://docs.pytorch.org/docs/2.12/distributed.html#groups
+#   Device Mesh (Higher level abstraction that manages process groups):
+#       https://docs.pytorch.org/docs/2.12/distributed.html#devicemesh
+#   Torchrun: https://docs.pytorch.org/docs/2.12/distributed.elastic.html
+# Main Read:
+#   https://docs.pytorch.org/docs/2.12/distributed.html#initialization
+#   https://docs.pytorch.org/docs/2.12/distributed.html#distributed-key-value-store
+#   https://docs.pytorch.org/docs/2.12/distributed.html#post-initialization
 print("Distributed package available:", dist.is_available())
 
 
