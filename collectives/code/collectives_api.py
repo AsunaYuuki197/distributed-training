@@ -89,7 +89,11 @@ def barrier(rank: int, world_size: int, platform: str, async_op: bool):
         backend='gloo' if platform == "cpu" else "nccl"
     )
 
-    device = torch.cuda.set_device(rank) if platform == "cuda" else None
+    device = None
+
+    if platform == "cuda":
+        torch.cuda.set_device(rank)
+        device = torch.device("cuda", rank)
 
     # example works
     print("Example works (loop 10000)\n")
@@ -116,7 +120,7 @@ def barrier(rank: int, world_size: int, platform: str, async_op: bool):
         # cuz barrier in this backend implemented by using
         # all_reduce of 1-element tensor, and need device_id
         # for allocating this tensor
-        device_ids=[device] if platform == "cuda" else None
+        device_ids=[device.index] if platform == "cuda" else None
     )
 
     if not (handler is None or handler.is_completed()):
@@ -175,7 +179,11 @@ def broadcast(rank: int, world_size: int, platform: str, async_op: bool):
         backend='gloo' if platform == "cpu" else "nccl"
     )
 
-    device = torch.cuda.set_device(rank) if platform == "cuda" else None
+    device = None
+
+    if platform == "cuda":
+        torch.cuda.set_device(rank)
+        device = torch.device("cuda", rank)
 
     # send tensor
     tensor = torch.tensor(123) if rank == 0 else torch.tensor(1)
@@ -357,7 +365,7 @@ def reduce(rank: int, world_size: int, platform: str, async_op: bool):
     # gather to desc rank
     # https://github.com/pytorch/gloo/blob/main/gloo/reduce.cc
     #
-    # e.g: gloo backend, at rank 0
+    # e.g: gloo backend, reduce to rank 1, tensor at rank 0:
     # tensor = [1,2,3] => after reduce => [2,4,3]
     #   Rank0: [1,2] [3]; Rank1: [1,2] [3]
     #   Reduce-Scatter
@@ -367,6 +375,11 @@ def reduce(rank: int, world_size: int, platform: str, async_op: bool):
     #
     # tensor = [1,2,3,4] => after reduce => [2,4,3,4]
     # tensor = [1,2,3,4,5] => after reduce => [2,4,6,8,5]
+    #
+    # While NCCL backend preserves tensor at rank 0
+    # tensor = [1,2,3] => after reduce => [1,2,3]
+    # Check:
+    #   https://github.com/NVIDIA/nccl/blob/49839dfd/src/nccl.h.in#L435-L448
 
 
 def all_gather(rank: int, world_size: int, platform: str, async_op: bool):
@@ -391,7 +404,11 @@ def all_gather(rank: int, world_size: int, platform: str, async_op: bool):
         backend='gloo' if platform == "cpu" else "nccl"
     )
 
-    torch.cuda.set_device(rank) if platform == "cuda" else None
+    device = None
+
+    if platform == "cuda":
+        torch.cuda.set_device(rank)
+        device = torch.device("cuda", rank)
 
     # send tensor (k-dimens)
     tensor = torch.tensor([1, 2, 3])
@@ -403,7 +420,7 @@ def all_gather(rank: int, world_size: int, platform: str, async_op: bool):
     # => recv size (2,tensor) with tensor has size (1,3)
     r_tensor = [torch.zeros(3, dtype=torch.int64)
                 for _ in range(world_size)]
-    r_tensor = r_tensor.cuda() if platform == "cuda" else r_tensor
+    r_tensor = [_.cuda() if platform == "cuda" else _ for _ in r_tensor]
 
     print(f"Tensor at {rank}: {tensor}\n")
     print(f"Receive Tensor at {rank}: {r_tensor}\n")
@@ -435,7 +452,9 @@ def all_gather(rank: int, world_size: int, platform: str, async_op: bool):
 
     print(f"Recv Tensor at {rank} after all_gather: {r_tensor}\n")
 
-    dist.barrier()
+    dist.barrier(
+        device_ids=[device.index] if platform == "cuda" else None
+    )
 
     # All gather into single tensor
     # receive tensor size ((world_size x 1st dimens size) x (k-1) dimens)
@@ -443,6 +462,7 @@ def all_gather(rank: int, world_size: int, platform: str, async_op: bool):
     # world_size = 2, tensor size (1,3)
     # => recv tensor size ((2x1), 3) = (2, 3)
     r_tensor = torch.zeros(3*world_size, dtype=torch.int64)
+    r_tensor = r_tensor.cuda() if platform == "cuda" else r_tensor
     print("="*10, "\nAll gather into tensor")
     print(f"Receive Tensor at {rank}: {r_tensor}\n")
 
@@ -469,7 +489,10 @@ def all_gather(rank: int, world_size: int, platform: str, async_op: bool):
 
     print(f"Recv Tensor at {rank} after all_gather_into_tensor: {r_tensor}\n")
 
-    dist.barrier()
+    dist.barrier(
+        device_ids=[device.index] if platform == "cuda" else None
+    )
+
     # Send object
     obj = [1, "2", {3: "Hello"}]
     r_obj = [None]*world_size
@@ -507,7 +530,11 @@ def gather(rank: int, world_size: int, platform: str, async_op: bool):
         backend='gloo' if platform == "cpu" else "nccl"
     )
 
-    torch.cuda.set_device(rank) if platform == "cuda" else None
+    device = None
+
+    if platform == "cuda":
+        torch.cuda.set_device(rank)
+        device = torch.device("cuda", rank)
 
     # send tensor (k-dimens)
     tensor = torch.tensor([1, 2, 3])
@@ -519,7 +546,7 @@ def gather(rank: int, world_size: int, platform: str, async_op: bool):
     # => recv size (2,tensor) with tensor has size (1,3)
     r_tensor = [torch.zeros(3, dtype=torch.int64)
                 for _ in range(world_size)]
-    r_tensor = r_tensor.cuda() if platform == "cuda" else r_tensor
+    r_tensor = [_.cuda() if platform == "cuda" else _ for _ in r_tensor]
 
     print(f"Tensor at {rank}: {tensor}\n")
     print(f"Receive Tensor at {rank}: {r_tensor}\n")
@@ -554,7 +581,9 @@ def gather(rank: int, world_size: int, platform: str, async_op: bool):
 
     print(f"Recv Tensor at {rank} after gather to rank 1: {r_tensor}\n")
 
-    dist.barrier()
+    dist.barrier(
+        device_ids=[device.index] if platform == "cuda" else None
+    )
 
     # Send object
     obj = [1, "2", {3: "Hello"}]
@@ -594,19 +623,23 @@ def scatter(rank: int, world_size: int, platform: str, async_op: bool):
         backend='gloo' if platform == "cpu" else "nccl"
     )
 
-    torch.cuda.set_device(rank) if platform == "cuda" else None
+    device = None
+
+    if platform == "cuda":
+        torch.cuda.set_device(rank)
+        device = torch.device("cuda", rank)
 
     # recv tensor
     tensor = torch.zeros(3, dtype=torch.int64)
     tensor = tensor.cuda() if platform == "cuda" else tensor
 
-    # with gloo backend, scatter_list size = world_size
-    # also the size of each element must match others
-    # and the recv tensor
+    # with gloo and nccl backend, scatter_list size = world_size
+    # also the size of each element must match others and the recv tensor
     scatter_list = None
     if rank == 0:
         scatter_list = [torch.tensor([1, 2, 3]) for _ in range(world_size)]
-    scatter_list = scatter_list.cuda() if platform == "cuda" else scatter_list
+        scatter_list = [_.cuda() if platform == "cuda" else _
+                        for _ in scatter_list]
 
     print(f"Recv Tensor at {rank}: {tensor}\n")
     print(f"Scatter list at {rank}: {scatter_list}\n")
@@ -640,7 +673,9 @@ def scatter(rank: int, world_size: int, platform: str, async_op: bool):
 
     print(f"Recv Tensor at {rank} after scatter: {tensor}\n")
 
-    dist.barrier()
+    dist.barrier(
+        device_ids=[device.index] if platform == "cuda" else None
+    )
 
     # Scatter object list
     # obj_list must same size of world size
@@ -681,7 +716,12 @@ def reduce_scatter(rank: int, world_size: int, platform: str, async_op: bool):
     dist.init_process_group(
         backend='gloo' if platform == "cpu" else "nccl"
     )
-    torch.cuda.set_device(rank) if platform == "cuda" else None
+
+    device = None
+
+    if platform == "cuda":
+        torch.cuda.set_device(rank)
+        device = torch.device("cuda", rank)
 
     # send tensor list, size = world_size
     # each element can be different size
@@ -689,7 +729,7 @@ def reduce_scatter(rank: int, world_size: int, platform: str, async_op: bool):
     tensors = [torch.tensor([9, 8]), torch.tensor([7, 6, 5])]
     if rank == 0:
         tensors = [torch.tensor([1, 2]), torch.tensor([3, 4, 5])]
-    tensors = tensors.cuda() if platform == "cuda" else tensors
+    tensors = [_.cuda() if platform == "cuda" else _ for _ in tensors]
 
     # receive tensor
     r_tensor = torch.zeros(3, dtype=torch.int64)
@@ -728,7 +768,9 @@ def reduce_scatter(rank: int, world_size: int, platform: str, async_op: bool):
 
     print(f"Recv Tensor at {rank} after reduce_scatter: {r_tensor}\n")
 
-    dist.barrier()
+    dist.barrier(
+        device_ids=[device.index] if platform == "cuda" else None
+    )
 
     # Send tensor size = receive tensor size x world_size
     # e.g:
@@ -743,14 +785,52 @@ def reduce_scatter(rank: int, world_size: int, platform: str, async_op: bool):
     # note:
     #   above is for gloo backend that I tested
     #
+    # For NCCL backend, it is quite weird but very flexible when
+    # it doesn't care how many nested dimens send tensor, recv tensor
+    # Everything still work if the number of element of send tensor equals
+    # the number of element of recv tensor times world_size
+    #
+    # e.g: world_size = 2
+    # send tensor at rank 0: [[3, 4], [5, 6]] with size (2,2)
+    # send tensor at rank 1: [[[1, 2], [3, 4]]] with size (1,2,2)
+    # recv tensor: [[[[0, 0]]]] with size (1,1,1,2)
+    #
+    # They still work cuz send tensor eles = 4 = 2 * recv tensor eles
+    # after reduce_scatter
+    # recv tensor at rank 0: [[[[3+1, 4+2]]]] = [[[[4, 6]]]]
+    # recv tensor at rank 1: [[[[5+3, 6+4]]]] = [[[[8, 10]]]]
+    #
+    # The reason is this line
+    #   if (inputTensor.numel() != outputTensor.numel() * size_) {
+    #       C10_THROW_ERROR(...);
+    #   }
+    # in
+    # https://github.com/pytorch/pytorch/blob/v2.12.0/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L5171
+    # numel() func just gives the number of elements in the tensor
+    # therefore when inputTensor.numel() == outputTensor.numel() * size_
+    # everything will fine
+    #
+    # Try this code:
+    # `
+    # tensor = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8]])
+    # if rank == 0:
+    #     tensor = torch.tensor([[3, 4], [5, 6], [6, 7], [8, 9]])
+    # tensor = tensor.cuda() if platform == "cuda" else tensor
+    # # Receive tensor must same size across ranks
+    # r_tensor = torch.zeros((2, 2), dtype=torch.int64)
+    # r_tensor = r_tensor.cuda() if platform == "cuda" else r_tensor
+    # `
 
     tensor = torch.tensor([[1, 2], [3, 4]])
 
     if rank == 0:
         tensor = torch.tensor([[3, 4], [5, 6]])
 
+    tensor = tensor.cuda() if platform == "cuda" else tensor
+
     # Receive tensor must same size across ranks
     r_tensor = torch.zeros((1, 2), dtype=torch.int64)
+    r_tensor = r_tensor.cuda() if platform == "cuda" else r_tensor
 
     print("="*10, "\nReduce_Scatter Tensor\n")
     print(f"Send Tensor at {rank}: {tensor}\n")
@@ -802,7 +882,12 @@ def all_to_all(rank: int, world_size: int, platform: str, async_op: bool):
     dist.init_process_group(
         backend='gloo' if platform == "cpu" else "nccl"
     )
-    torch.cuda.set_device(rank) if platform == "cuda" else None
+
+    device = None
+
+    if platform == "cuda":
+        torch.cuda.set_device(rank)
+        device = torch.device("cuda", rank)
 
     # send tensor
     # default tensors divide equally by world_size
@@ -874,22 +959,40 @@ def all_to_all(rank: int, world_size: int, platform: str, async_op: bool):
 
     print(f"Recv Tensor at {rank} after all_to_all_single: {r_tensor}\n")
 
-    dist.barrier()
+    dist.barrier(
+        device_ids=[device.index] if platform == "cuda" else None
+    )
 
     # Send tensor size = world_size
     # For gloo backend, must same size on each dimens
     # means cannot do [[1,2], [3,4,5]] for tensors
+    #
+    # For nccl backend, complex size supported
+    # e.g:
+    # send at rank 0: [[1,2], [3,4,5]]
+    # send at rank 1: [[1,2], [3,4,5]]
+    # recv at rank 0 size: (2,2)
+    # recv at rank 1 size: (2,3)
+    # or
+    # send at rank 0: [[3,4,5], [1,2]]
+    # send at rank 1: [[1,2], [3,4,5]]
+    # recv at rank 0 size: (2,3) + (2,2) = [[3,4,5], [1,2]]
+    # recv at rank 1 size: (2,2) + (2,3) = [[1,2], [3,4,5]]
     tensors = list(torch.tensor([[8, 10], [7, 9]]))
     if rank == 0:
         tensors = list(torch.tensor([[4, 6], [3, 5]]))
+    tensors = [_.cuda() if platform == "cuda" else _ for _ in tensors]
 
     # Receive tensor size = world_size
     r_tensor = list(torch.zeros((2, 2), dtype=torch.int64))
+    r_tensor = [_.cuda() if platform == "cuda" else _ for _ in r_tensor]
 
     print("="*10, "\nAnother All_to_All API but divide equally\n")
     print(f"Send Tensor at {rank}: {tensors}\n")
     print(f"Recv Tensor at {rank}: {r_tensor}\n")
 
+    # note: In torch docs I read rn said
+    # "all_to_all is experimental and subject to change"
     handler = dist.all_to_all(
         # type "list of tensor"
         input_tensor_list=tensors,
@@ -921,6 +1024,14 @@ collective_choice = int(os.environ["COLLECTIVE"])
 # To run this, using torchrun for easyly peer discovery and env init
 # `
 # COLLECTIVE=1 torchrun --nproc-per-node=2 collectives_api.py
+# COLLECTIVE=2 torchrun --nproc-per-node=2 collectives_api.py
+# COLLECTIVE=3 torchrun --nproc-per-node=2 collectives_api.py
+# COLLECTIVE=4 torchrun --nproc-per-node=2 collectives_api.py
+# COLLECTIVE=5 torchrun --nproc-per-node=2 collectives_api.py
+# COLLECTIVE=6 torchrun --nproc-per-node=2 collectives_api.py
+# COLLECTIVE=7 torchrun --nproc-per-node=2 collectives_api.py
+# COLLECTIVE=8 torchrun --nproc-per-node=2 collectives_api.py
+# COLLECTIVE=9 torchrun --nproc-per-node=2 collectives_api.py
 # `
 match collective_choice:
     case 1:  # broadcast
@@ -983,3 +1094,5 @@ match collective_choice:
         # barrier(rank=rank, world_size=2, platform="cuda", async_op=True)
     case _:
         pass
+
+dist.destroy_process_group()
